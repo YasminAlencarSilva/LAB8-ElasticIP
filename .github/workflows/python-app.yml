@@ -8,14 +8,14 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  IMAGE_NAME: yasminalencar/lab8-api
-
 jobs:
+
   Build:
+    name: Build e Testes
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Baixar codigo
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -32,10 +32,12 @@ jobs:
         run: PYTHONPATH=. pytest tests/ -v
 
   Imagem:
+    name: Construir e publicar imagem Docker
     needs: Build
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Baixar codigo
         uses: actions/checkout@v4
 
       - name: Login Docker Hub
@@ -44,7 +46,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build e Push
+      - name: Construir e publicar imagem
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -54,37 +56,39 @@ jobs:
             yasminalencar/lab8-api:sha-${{ github.sha }}
 
   Deploy_Homologacao:
+    name: Validar imagem de homologacao
     needs: Imagem
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     environment: Homologacao
+
     steps:
-      - name: Deploy Homologacao
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.HOMOLOG_EC2_HOST }}
-          username: ${{ secrets.HOMOLOG_EC2_USERNAME }}
-          key: ${{ secrets.HOMOLOG_EC2_SSH_KEY }}
-          script: |
-            sudo docker pull yasminalencar/lab8-api:develop
-            sudo docker stop lab9-homologacao || true
-            sudo docker rm lab9-homologacao || true
-            sudo docker run -d --name lab9-homologacao --restart unless-stopped -p 8080:8080 yasminalencar/lab8-api:develop
+      - name: Baixar imagem Docker
+        run: docker pull yasminalencar/lab8-api:develop
+
+      - name: Verificar imagem
+        run: docker image inspect yasminalencar/lab8-api:develop
+
+      - name: Informar status
+        run: |
+          echo "Imagem de homologacao publicada e validada."
+          echo "Deploy na EC2 pendente de infraestrutura."
 
   Deploy_Producao:
+    name: Aprovação e validacao para producao
     needs: Imagem
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: Producao
+
     steps:
-      - name: Deploy Producao
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            sudo docker pull yasminalencar/lab8-api:main
-            sudo docker stop lab9-producao || true
-            sudo docker rm lab9-producao || true
-            sudo docker run -d --name lab9-producao --restart unless-stopped -p 8080:8080 yasminalencar/lab8-api:main
+      - name: Baixar imagem Docker
+        run: docker pull yasminalencar/lab8-api:main
+
+      - name: Verificar imagem
+        run: docker image inspect yasminalencar/lab8-api:main
+
+      - name: Informar status
+        run: |
+          echo "Imagem de producao publicada e validada."
+          echo "Deploy na EC2 pendente de infraestrutura."
