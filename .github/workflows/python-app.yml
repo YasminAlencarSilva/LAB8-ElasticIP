@@ -1,0 +1,90 @@
+
+name: LAB9 - Pipeline CI/CD
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: yasminalencar/lab8-api
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          pip install pytest httpx
+
+      - name: Executar testes
+        run: PYTHONPATH=. pytest tests/ -v
+
+  Imagem:
+    needs: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build e Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            yasminalencar/lab8-api:${{ github.ref_name }}
+            yasminalencar/lab8-api:sha-${{ github.sha }}
+
+  Deploy_Homologacao:
+    needs: Imagem
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: Homologacao
+    steps:
+      - name: Deploy Homologacao
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOMOLOG_EC2_HOST }}
+          username: ${{ secrets.HOMOLOG_EC2_USERNAME }}
+          key: ${{ secrets.HOMOLOG_EC2_SSH_KEY }}
+          script: |
+            sudo docker pull yasminalencar/lab8-api:develop
+            sudo docker stop lab9-homologacao || true
+            sudo docker rm lab9-homologacao || true
+            sudo docker run -d --name lab9-homologacao --restart unless-stopped -p 8080:8080 yasminalencar/lab8-api:develop
+
+  Deploy_Producao:
+    needs: Imagem
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Producao
+    steps:
+      - name: Deploy Producao
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo docker pull yasminalencar/lab8-api:main
+            sudo docker stop lab9-producao || true
+            sudo docker rm lab9-producao || true
+            sudo docker run -d --name lab9-producao --restart unless-stopped -p 8080:8080 yasminalencar/lab8-api:main
